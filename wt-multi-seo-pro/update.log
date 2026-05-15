@@ -1,0 +1,51 @@
+Complete Enhancement Summary: v1.0 → v2.0
+Sitemap System (rewritten)
+XSL stylesheet at /sitemap-xsl.xsl -- sitemaps are now human-readable with a styled table
+Automatic pagination -- sites with >2,500 URLs split into sitemap-posts-2.xml, etc.
+Google News sitemap (/sitemap-news.xml) -- 48-hour window, publication name, language, keywords
+Video sitemap (/sitemap-video.xml) -- thumbnail, duration, player/content URLs
+Author sitemap (/sitemap-authors.xml)
+Per-language sitemaps -- optional /sitemap-en-posts.xml, /sitemap-fr-pages.xml
+Database-sourced lastmod -- queries MAX(post_modified_gmt) instead of current timestamp
+IndexNow protocol -- instant indexing for Bing, Yandex, Seznam, Naver
+Deferred ping batching -- 30-second debounce for rapid publishes
+noindex exclusion via meta_query at DB level, same-domain image filtering
+Disables WordPress 5.5+ core sitemaps to prevent conflicts
+Proper application/xml content type + cache headers
+Schema / Structured Data (GEO-optimized)
+SearchAction for Google sitelinks search box
+SpeakableSpecification for voice search / AI assistants
+SiteNavigationElement from primary menu
+FAQPage auto-detection (Yoast blocks, heading+paragraph patterns, custom meta)
+HowTo schema from post meta
+Full Author entity with avatar, URL, sameAs profiles, linked via @id
+Article enrichments: wordCount, articleSection, keywords, inLanguage, configurable type
+WebPage: description, dates, primaryImageOfPage, speakable
+Organization: contactPoint, 7 social platforms, image linking
+Local Business: structured PostalAddress, GeoCoordinates, priceRange, openingHours as array
+Product: WooCommerce Offers integration
+Robots & Indexing
+Professional auto-generated robots.txt with tracking param blocks, admin blocks
+AI crawler management: block 14+ AI bots or write custom per-bot rules
+Advanced meta robots: max-snippet, max-image-preview:large, max-video-preview
+Per-bot meta directives: separate googlebot and bingbot tags
+Paginated noindex option
+Site verification tags: Google, Bing, Yandex, Pinterest
+IndexNow key file auto-served at /{key}.txt
+Open Graph
+og:image:width, og:image:height, og:image:type, og:image:alt
+og:locale:alternate for multilingual
+article:section, article:tag, article:author
+og:video support, og:type=product and og:type=profile
+Hreflang
+Post type archive hreflang support
+Author page hreflang support
+Skips noindex and unpublished translations
+Configurable x-default strategy
+Admin & Cleanup
+Updated all 7 settings pages with new features
+Debug information panel in Tools
+Version display in header
+Removed 3 orphan duplicate files
+Self-contained admin header (no root dependency)
+7 social profile fields (added YouTube, Instagram, Pinterest, TikTok)

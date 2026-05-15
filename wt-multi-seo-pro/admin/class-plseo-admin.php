@@ -1,0 +1,443 @@
+<?php
+defined( 'ABSPATH' ) || exit;
+
+class PLSEO_Admin {
+
+    private static ?self $instance = null;
+
+    public static function get_instance(): self {
+        if ( null === self::$instance ) {
+            self::$instance = new self();
+        }
+
+        return self::$instance;
+    }
+
+    private function __construct() {
+        add_action( 'admin_menu', [ $this, 'register_menu' ] );
+        add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
+        add_action( 'admin_notices', [ $this, 'show_notices' ] );
+        add_action( 'wp_ajax_plseo_ping_sitemap', [ $this, 'ajax_ping_sitemap' ] );
+    }
+
+    public function register_menu(): void {
+        add_menu_page(
+            __( 'WT SEO Pro', 'polylang-seo' ),
+            __( 'WT SEO Pro', 'polylang-seo' ),
+            'manage_options',
+            'polylang-seo',
+            [ $this, 'render_general_page' ],
+            'dashicons-search',
+            80
+        );
+
+        $pages = [
+            [ 'slug' => 'polylang-seo',    'title' => __( 'General', 'polylang-seo' ),         'callback' => 'render_general_page' ],
+            [ 'slug' => 'plseo-sitemap',   'title' => __( 'Sitemap', 'polylang-seo' ),         'callback' => 'render_sitemap_page' ],
+            [ 'slug' => 'plseo-social',    'title' => __( 'Social / OG', 'polylang-seo' ),     'callback' => 'render_social_page' ],
+            [ 'slug' => 'plseo-schema',    'title' => __( 'Structured Data', 'polylang-seo' ), 'callback' => 'render_schema_page' ],
+            [ 'slug' => 'plseo-robots',    'title' => __( 'Robots & Index', 'polylang-seo' ),  'callback' => 'render_robots_page' ],
+            [ 'slug' => 'plseo-performance', 'title' => __( 'Performance', 'polylang-seo' ),   'callback' => 'render_performance_page' ],
+            [ 'slug' => 'plseo-tools',     'title' => __( 'Tools', 'polylang-seo' ),           'callback' => 'render_tools_page' ],
+        ];
+
+        foreach ( $pages as $page ) {
+            add_submenu_page(
+                'polylang-seo',
+                $page['title'],
+                $page['title'],
+                'manage_options',
+                $page['slug'],
+                [ $this, $page['callback'] ]
+            );
+        }
+    }
+
+    public function enqueue_assets( string $hook ): void {
+        if ( false === strpos( $hook, 'polylang-seo' ) && false === strpos( $hook, 'plseo' ) ) {
+            return;
+        }
+
+        wp_enqueue_style( 'plseo-admin', PLSEO_URL . 'admin/assets/css/admin.css', [], PLSEO_VERSION );
+        wp_enqueue_script( 'plseo-admin', PLSEO_URL . 'admin/assets/js/admin.js', [ 'jquery' ], PLSEO_VERSION, true );
+
+        wp_localize_script(
+            'plseo-admin',
+            'plseoAdmin',
+            [
+                'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+                'nonce'   => wp_create_nonce( 'plseo_admin_nonce' ),
+                'i18n'    => [
+                    'pinging'  => __( 'Pinging...', 'polylang-seo' ),
+                    'pingDone' => __( 'Search engines notified.', 'polylang-seo' ),
+                    'pingFail' => __( 'Ping failed. Try again.', 'polylang-seo' ),
+                ],
+            ]
+        );
+    }
+
+    public function show_notices(): void {
+        $screen = get_current_screen();
+        if ( ! $screen || ( false === strpos( $screen->id, 'polylang-seo' ) && false === strpos( $screen->id, 'plseo' ) ) ) {
+            return;
+        }
+
+        if ( get_transient( 'plseo_settings_saved' ) ) {
+            delete_transient( 'plseo_settings_saved' );
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Settings saved successfully.', 'polylang-seo' ) . '</p></div>';
+        }
+    }
+
+    public function ajax_ping_sitemap(): void {
+        check_ajax_referer( 'plseo_admin_nonce', 'nonce' );
+
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( [ 'message' => __( 'Permission denied.', 'polylang-seo' ) ], 403 );
+        }
+
+        PLSEO_Sitemap::get_instance()->ping_search_engines();
+        wp_send_json_success( [ 'message' => __( 'Search engines notified.', 'polylang-seo' ) ] );
+    }
+
+    public function render_general_page(): void {
+        $this->render_settings_page( 'general' );
+    }
+
+    public function render_sitemap_page(): void {
+        $this->render_settings_page( 'sitemap' );
+    }
+
+    public function render_social_page(): void {
+        $this->render_settings_page( 'social' );
+    }
+
+    public function render_schema_page(): void {
+        $this->render_settings_page( 'schema' );
+    }
+
+    public function render_robots_page(): void {
+        $this->render_settings_page( 'robots' );
+    }
+
+    public function render_performance_page(): void {
+        $this->render_settings_page( 'performance' );
+    }
+
+    public function render_tools_page(): void {
+        if ( isset( $_POST['plseo_action'] ) && 'flush_rewrite' === sanitize_text_field( wp_unslash( $_POST['plseo_action'] ) ) ) {
+            check_admin_referer( 'plseo_flush_rewrite' );
+            flush_rewrite_rules();
+            echo '<div class="notice notice-success inline"><p>' . esc_html__( 'Rewrite rules flushed.', 'polylang-seo' ) . '</p></div>';
+        }
+
+        include PLSEO_DIR . 'admin/views/header.php';
+        ?>
+        <div class="plseo-card">
+            <h2><?php esc_html_e( 'Sitemap Tools', 'polylang-seo' ); ?></h2>
+            <p>
+                <a href="<?php echo esc_url( home_url( 'sitemap.xml' ) ); ?>" target="_blank" class="button">
+                    <?php esc_html_e( 'View Sitemap Index', 'polylang-seo' ); ?>
+                </a>
+                <?php if ( PLSEO_Helpers::get_option( 'sitemap_news', false ) ) : ?>
+                <a href="<?php echo esc_url( home_url( 'sitemap-news.xml' ) ); ?>" target="_blank" class="button">
+                    <?php esc_html_e( 'View News Sitemap', 'polylang-seo' ); ?>
+                </a>
+                <?php endif; ?>
+                <?php if ( PLSEO_Helpers::get_option( 'sitemap_videos', false ) ) : ?>
+                <a href="<?php echo esc_url( home_url( 'sitemap-video.xml' ) ); ?>" target="_blank" class="button">
+                    <?php esc_html_e( 'View Video Sitemap', 'polylang-seo' ); ?>
+                </a>
+                <?php endif; ?>
+                <button id="plseo-ping-btn" type="button" class="button button-primary">
+                    <?php esc_html_e( 'Ping Search Engines', 'polylang-seo' ); ?>
+                </button>
+                <span id="plseo-ping-msg"></span>
+            </p>
+        </div>
+
+        <div class="plseo-card">
+            <h2><?php esc_html_e( 'Maintenance', 'polylang-seo' ); ?></h2>
+            <form method="post">
+                <?php wp_nonce_field( 'plseo_flush_rewrite' ); ?>
+                <input type="hidden" name="plseo_action" value="flush_rewrite" />
+                <button type="submit" class="button"><?php esc_html_e( 'Flush Rewrite Rules', 'polylang-seo' ); ?></button>
+            </form>
+        </div>
+
+        <div class="plseo-card">
+            <h2><?php esc_html_e( 'Debug Information', 'polylang-seo' ); ?></h2>
+            <table class="form-table">
+                <tr>
+                    <th><?php esc_html_e( 'Plugin Version', 'polylang-seo' ); ?></th>
+                    <td><code><?php echo esc_html( PLSEO_VERSION ); ?></code></td>
+                </tr>
+                <tr>
+                    <th><?php esc_html_e( 'Polylang Active', 'polylang-seo' ); ?></th>
+                    <td><code><?php echo function_exists( 'pll_languages_list' ) ? 'Yes' : 'No'; ?></code></td>
+                </tr>
+                <tr>
+                    <th><?php esc_html_e( 'Languages', 'polylang-seo' ); ?></th>
+                    <td>
+                        <?php
+                        $langs = PLSEO_Helpers::get_languages();
+                        if ( $langs ) {
+                            foreach ( $langs as $slug => $lang ) {
+                                printf(
+                                    '<code>%s</code> (%s) &rarr; <code>%s</code><br>',
+                                    esc_html( $slug ),
+                                    esc_html( $lang['locale'] ),
+                                    esc_html( PLSEO_Helpers::locale_to_hreflang( $lang['locale'] ) )
+                                );
+                            }
+                        } else {
+                            esc_html_e( 'No languages configured.', 'polylang-seo' );
+                        }
+                        ?>
+                    </td>
+                </tr>
+                <tr>
+                    <th><?php esc_html_e( 'Sitemap URL', 'polylang-seo' ); ?></th>
+                    <td><a href="<?php echo esc_url( home_url( 'sitemap.xml' ) ); ?>" target="_blank"><code><?php echo esc_url( home_url( 'sitemap.xml' ) ); ?></code></a></td>
+                </tr>
+                <tr>
+                    <th><?php esc_html_e( 'robots.txt', 'polylang-seo' ); ?></th>
+                    <td><a href="<?php echo esc_url( home_url( 'robots.txt' ) ); ?>" target="_blank"><code><?php echo esc_url( home_url( 'robots.txt' ) ); ?></code></a></td>
+                </tr>
+            </table>
+        </div>
+        <?php
+    }
+
+    private function render_settings_page( string $tab ): void {
+        if ( isset( $_POST['_wpnonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ), 'plseo_settings' ) ) {
+            $this->save_settings( $tab );
+            set_transient( 'plseo_settings_saved', true, 30 );
+        }
+
+        $template = PLSEO_DIR . 'admin/views/settings-' . $tab . '.php';
+        include file_exists( $template ) ? $template : PLSEO_DIR . 'admin/views/settings-general.php';
+    }
+
+    private function save_settings( string $tab ): void {
+        foreach ( $this->get_tab_fields( $tab ) as $key => $type ) {
+            $option_key = 'plseo_' . $key;
+
+            switch ( $type ) {
+                case 'checkbox':
+                    update_option( $option_key, isset( $_POST[ $option_key ] ) );
+                    break;
+                case 'multicheck':
+                    $value = isset( $_POST[ $option_key ] ) ? array_map( 'sanitize_text_field', (array) wp_unslash( $_POST[ $option_key ] ) ) : [];
+                    update_option( $option_key, $value );
+                    break;
+                case 'url':
+                    update_option( $option_key, esc_url_raw( wp_unslash( $_POST[ $option_key ] ?? '' ) ) );
+                    break;
+                case 'textarea':
+                    update_option( $option_key, sanitize_textarea_field( wp_unslash( $_POST[ $option_key ] ?? '' ) ) );
+                    break;
+                case 'number':
+                    update_option( $option_key, absint( $_POST[ $option_key ] ?? 0 ) );
+                    break;
+                case 'post_ids':
+                    $ids = array_filter( array_map( 'absint', preg_split( '/[\s,]+/', (string) wp_unslash( $_POST[ $option_key ] ?? '' ) ) ) );
+                    update_option( $option_key, array_values( $ids ) );
+                    break;
+                case 'cpt_archive_seo':
+                    $value = isset( $_POST[ $option_key ] ) && is_array( $_POST[ $option_key ] ) ? wp_unslash( $_POST[ $option_key ] ) : [];
+                    update_option( $option_key, $this->sanitize_cpt_archive_seo_settings( $value ) );
+                    break;
+                default:
+                    update_option( $option_key, sanitize_text_field( wp_unslash( $_POST[ $option_key ] ?? '' ) ) );
+                    break;
+            }
+        }
+    }
+
+    private function get_tab_fields( string $tab ): array {
+        $fields = [
+            'general'     => [
+                'title_separator'      => 'text',
+                'homepage_title'       => 'text',
+                'homepage_description' => 'textarea',
+                'title_format_single'  => 'text',
+                'title_format_archive' => 'text',
+                'title_format_search'  => 'text',
+                'title_format_404'     => 'text',
+                'title_format_author'  => 'text',
+                'enabled_post_types'   => 'multicheck',
+                'enabled_taxonomies'   => 'multicheck',
+                'cpt_archive_seo'      => 'cpt_archive_seo',
+                'google_site_verification'   => 'text',
+                'bing_site_verification'     => 'text',
+                'yandex_site_verification'   => 'text',
+                'pinterest_site_verification' => 'text',
+            ],
+            'sitemap'     => [
+                'sitemap_enabled'            => 'checkbox',
+                'sitemap_include_posts'      => 'checkbox',
+                'sitemap_include_pages'      => 'checkbox',
+                'sitemap_include_cpt'        => 'multicheck',
+                'sitemap_include_taxonomies' => 'checkbox',
+                'sitemap_include_authors'    => 'checkbox',
+                'sitemap_images'             => 'checkbox',
+                'sitemap_news'               => 'checkbox',
+                'sitemap_news_post_types'    => 'multicheck',
+                'sitemap_news_publication'   => 'text',
+                'sitemap_videos'             => 'checkbox',
+                'sitemap_video_post_types'   => 'multicheck',
+                'sitemap_per_language'       => 'checkbox',
+                'sitemap_hreflang'           => 'checkbox',
+                'sitemap_x_default'          => 'checkbox',
+                'sitemap_ping_google'        => 'checkbox',
+                'sitemap_ping_bing'          => 'checkbox',
+                'sitemap_indexnow'           => 'checkbox',
+                'indexnow_api_key'           => 'text',
+                'sitemap_posts_per_type'     => 'number',
+                'sitemap_exclude_ids'        => 'post_ids',
+            ],
+            'social'      => [
+                'og_enabled'        => 'checkbox',
+                'og_default_image'  => 'url',
+                'fb_app_id'         => 'text',
+                'fb_admins'         => 'text',
+                'social_facebook'   => 'url',
+                'social_twitter'    => 'url',
+                'social_linkedin'   => 'url',
+                'social_youtube'    => 'url',
+                'social_instagram'  => 'url',
+                'social_pinterest'  => 'url',
+                'social_tiktok'     => 'url',
+                'twitter_enabled'   => 'checkbox',
+                'twitter_card_type' => 'text',
+                'twitter_site'      => 'text',
+                'twitter_creator'   => 'text',
+            ],
+            'schema'      => [
+                'schema_enabled'        => 'checkbox',
+                'schema_org_type'       => 'text',
+                'schema_org_name'       => 'text',
+                'schema_org_url'        => 'url',
+                'schema_org_logo'       => 'url',
+                'schema_article_type'   => 'text',
+                'schema_breadcrumb'     => 'checkbox',
+                'schema_article'        => 'checkbox',
+                'schema_search_action'  => 'checkbox',
+                'schema_speakable'      => 'checkbox',
+                'schema_navigation'     => 'checkbox',
+                'schema_contact_type'   => 'text',
+                'schema_local_business' => 'checkbox',
+                'schema_lb_type'        => 'text',
+                'schema_lb_street'      => 'text',
+                'schema_lb_city'        => 'text',
+                'schema_lb_region'      => 'text',
+                'schema_lb_postal'      => 'text',
+                'schema_lb_country'     => 'text',
+                'schema_lb_phone'       => 'text',
+                'schema_lb_hours'       => 'text',
+                'schema_lb_lat'         => 'text',
+                'schema_lb_lng'         => 'text',
+                'schema_lb_price_range' => 'text',
+            ],
+            'robots'      => [
+                'noindex_search'           => 'checkbox',
+                'noindex_404'              => 'checkbox',
+                'noindex_author'           => 'checkbox',
+                'noindex_date'             => 'checkbox',
+                'noindex_attachment'        => 'checkbox',
+                'noindex_empty_taxonomy'   => 'checkbox',
+                'noindex_subpages'         => 'checkbox',
+                'robots_max_snippet'       => 'text',
+                'robots_max_image_preview' => 'text',
+                'robots_max_video_preview' => 'text',
+                'robots_googlebot'         => 'text',
+                'robots_bingbot'           => 'text',
+                'robots_block_ai_bots'     => 'checkbox',
+                'robots_ai_bots_custom'    => 'textarea',
+                'robots_crawl_delay'       => 'text',
+                'robots_txt_additions'     => 'textarea',
+                'canonical_enabled'        => 'checkbox',
+                'canonical_force_https'    => 'checkbox',
+                'canonical_trailing_slash' => 'checkbox',
+                'canonical_strip_params'   => 'checkbox',
+                'hreflang_x_default'       => 'text',
+                'redirect_404_home'        => 'checkbox',
+                'redirect_old_slugs'       => 'checkbox',
+            ],
+            'performance' => [
+                'remove_rsd_link'    => 'checkbox',
+                'remove_shortlink'   => 'checkbox',
+                'remove_oembed'      => 'checkbox',
+                'preconnect_domains' => 'textarea',
+                'dns_prefetch'       => 'textarea',
+            ],
+        ];
+
+        return $fields[ $tab ] ?? [];
+    }
+
+    private function sanitize_cpt_archive_seo_settings( array $raw ): array {
+        $allowed_fields = [
+            'inherit_defaults',
+            'title',
+            'description',
+            'canonical',
+            'og_title',
+            'og_description',
+            'og_image',
+            'twitter_image',
+        ];
+
+        $sanitized = [];
+        $languages = array_keys( PLSEO_Helpers::get_languages() );
+        $languages[] = 'default';
+        $languages = array_unique( array_filter( array_map( 'sanitize_key', $languages ) ) );
+
+        foreach ( $raw as $post_type => $settings ) {
+            if ( ! is_string( $post_type ) || ! post_type_exists( $post_type ) || ! is_array( $settings ) ) {
+                continue;
+            }
+
+            $has_language_structure = false;
+            foreach ( array_keys( $settings ) as $setting_key ) {
+                if ( in_array( sanitize_key( (string) $setting_key ), $languages, true ) ) {
+                    $has_language_structure = true;
+                    break;
+                }
+            }
+
+            if ( ! $has_language_structure ) {
+                $settings = [ 'default' => $settings ];
+            }
+
+            foreach ( $settings as $lang => $lang_settings ) {
+                $lang = sanitize_key( (string) $lang );
+                if ( ! in_array( $lang, $languages, true ) || ! is_array( $lang_settings ) ) {
+                    continue;
+                }
+
+                foreach ( $allowed_fields as $field ) {
+                    if ( 'inherit_defaults' === $field ) {
+                        $sanitized[ $post_type ][ $lang ][ $field ] = isset( $lang_settings[ $field ] ) ? '1' : '';
+                        continue;
+                    }
+
+                    $value = $lang_settings[ $field ] ?? '';
+                    if ( ! is_string( $value ) ) {
+                        $value = '';
+                    }
+
+                    if ( in_array( $field, [ 'canonical', 'og_image', 'twitter_image' ], true ) ) {
+                        $sanitized[ $post_type ][ $lang ][ $field ] = esc_url_raw( $value );
+                    } elseif ( in_array( $field, [ 'description', 'og_description' ], true ) ) {
+                        $sanitized[ $post_type ][ $lang ][ $field ] = sanitize_textarea_field( $value );
+                    } else {
+                        $sanitized[ $post_type ][ $lang ][ $field ] = sanitize_text_field( $value );
+                    }
+                }
+            }
+        }
+
+        return $sanitized;
+    }
+}
